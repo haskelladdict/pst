@@ -3,6 +3,11 @@
 *.a
 *.so
 
+Makefile 
+pst
+.tags*
+test/
+
 # Folders
 _obj
 _test

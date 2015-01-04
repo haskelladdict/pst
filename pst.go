@@ -14,9 +14,10 @@ import (
 	"unicode"
 )
 
-// vars for the command line parser
+// command line switches
 var (
 	inputSpec    string
+	inputSep     string
 	computeStats bool
 )
 
@@ -34,10 +35,12 @@ func init() {
      If the number of specifiers is less than the number of files, the last
      specifier i will be applied to files i through N, where N is the total
      number of files provided.`)
-	flag.BoolVar(&computeStats, "s", false,
+	flag.BoolVar(&computeStats, "c", false,
 		`compute statistics across column values in each output row.
      Please note that each value in the output has to be convertible into a float
      for this to work. Currently the mean and standard deviation are computed`)
+	flag.StringVar(&inputSep, "s", "",
+		`column separator for input files. The default separator is whitespace.`)
 }
 
 func main() {
@@ -46,6 +49,8 @@ func main() {
 		usage()
 		os.Exit(1)
 	}
+
+	inputSepFunc := getInputSepFunc(inputSep)
 
 	colSpecs, err := parseInputSpec(inputSpec)
 	if err != nil {
@@ -57,7 +62,7 @@ func main() {
 	}
 
 	// read input files and assemble output
-	output, err := readData(flag.Args(), colSpecs)
+	output, err := readData(flag.Args(), colSpecs, inputSepFunc)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -81,7 +86,7 @@ func main() {
 
 // parseFile reads the passed in file, extracts the columns requested per spec
 // and the returns a slice with the requested column info.
-func parseFile(fileName string, spec parseSpec) (outData, error) {
+func parseFile(fileName string, spec parseSpec, sepFun func(rune) bool) (outData, error) {
 
 	file, err := os.Open(fileName)
 	if err != nil {
@@ -91,8 +96,7 @@ func parseFile(fileName string, spec parseSpec) (outData, error) {
 	var out outData
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		items := strings.FieldsFunc(strings.TrimSpace(scanner.Text()), unicode.IsSpace)
-		//row := make([]string, 0, len(spec))
+		items := strings.FieldsFunc(strings.TrimSpace(scanner.Text()), sepFun)
 		var row string
 		for _, i := range spec {
 			if i >= len(items) {
@@ -164,7 +168,7 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 
 // readData parses all the output files and populates and returns the output
 // data set
-func readData(files []string, colSpecs []parseSpec) (outData, error) {
+func readData(files []string, colSpecs []parseSpec, sepFun func(rune) bool) (outData, error) {
 
 	var output outData
 	for i, file := range files {
@@ -177,7 +181,7 @@ func readData(files []string, colSpecs []parseSpec) (outData, error) {
 			spec = colSpecs[len(colSpecs)-1]
 		}
 
-		parsedCols, err := parseFile(file, spec)
+		parsedCols, err := parseFile(file, spec, sepFun)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -246,9 +250,26 @@ func variance(items []float64) float64 {
 	return variance
 }
 
+// getInputSepFunc returns a closure used for separating the columns in the
+// input files
+func getInputSepFunc(inputSep string) func(rune) bool {
+	inputSepFunc := unicode.IsSpace
+	if len(inputSep) >= 1 {
+		inputSepFunc = func(r rune) bool {
+			for _, s := range inputSep {
+				if s == r {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return inputSepFunc
+}
+
 // usage prints a simple usage/help message
 func usage() {
-	fmt.Println("pst (C) 2015 M. Dittrich")
+	fmt.Println("pst             (C) 2015 M. Dittrich")
 	fmt.Println()
 	fmt.Println("usage: pst <options> file1 file2 ...")
 	fmt.Println()

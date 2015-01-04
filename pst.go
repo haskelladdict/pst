@@ -27,17 +27,22 @@ type outData []string
 type parseSpec []int
 
 func init() {
-	flag.StringVar(&inputSpec, "c", "", "specify the input columns to parse for "+
-		"each of the input files")
-	flag.BoolVar(&computeStats, "s", false, "compute statistics across column values "+
-		"in each row of the final output. Please note that each value in the output "+
-		"has to be convertible into a float for this to work. Currently "+
-		"only mean and standard deviation are computed")
+	flag.StringVar(&inputSpec, "e", "",
+		`specify the input columns to extract.
+     The spec format is "<column list file1>|<column list file2>|..."
+     where each column specifier is of the form col_i,col_j,col_k-col_n, ....
+     If the number of specifiers is less than the number of files, the last
+     specifier i will be applied to files i through N, where N is the total
+     number of files provided.`)
+	flag.BoolVar(&computeStats, "s", false,
+		`compute statistics across column values in each output row.
+     Please note that each value in the output has to be convertible into a float
+     for this to work. Currently the mean and standard deviation are computed`)
 }
 
 func main() {
 	flag.Parse()
-	if len(flag.Args()) < 1 {
+	if len(flag.Args()) < 1 || inputSpec == "" {
 		usage()
 		os.Exit(1)
 	}

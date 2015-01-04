@@ -39,11 +39,11 @@ func init() {
 	flag.BoolVar(&computeStats, "c", false,
 		`compute statistics across column values in each output row.
      Please note that each value in the output has to be convertible into a float
-     for this to work. Currently the mean and standard deviation are computed`)
+     for this to work. Currently the mean and standard deviation are computed.`)
 	flag.StringVar(&inputSep, "i", "",
 		`column separator for input files. The default separator is whitespace.`)
 	flag.StringVar(&outputSep, "o", " ",
-		`column separator for output files. The default separator is a single space`)
+		`column separator for output files. The default separator is a single space.`)
 }
 
 func main() {
@@ -285,4 +285,50 @@ func usage() {
 	fmt.Println()
 	fmt.Println("options:")
 	flag.PrintDefaults()
+	fmt.Println()
+	fmt.Println(exampleText)
 }
+
+const exampleText = `Notes:
+
+    The output file is assembled in memory and thus requires sufficient storage
+    to hold the complete final output data.
+
+    The input column specifiers are zero based and can include ranges. The end
+    of a range is not included in the output, i.e. the range 2-5 selects columns
+    2, 3, and 4.
+
+Examples:
+
+    pst -e "0,1" file1 file2 file3 > outfile
+
+    This command selects columns 0 and 1 from each of file1, file2, and file3
+   	and outputs them to outfile (which thus contains 6 columns).
+
+
+    pst -e "0,1|3" file1 file2 file3 > outfile
+
+    This invocation selects columns 0 and 1 from file1, and column 3 from file2
+    and file3. outfile contains 4 columns.
+
+
+    pst -e "0,1|3|4-6" file1 file2 file3 > outfile
+
+    This command selects column 0 and 1 from file1, column 3 from file2, and
+    columns 4 and 5 from file 3. outfile contains 5 columns.
+
+
+    pst -o "," -i ";" -e "0,1|3|4-6" file1 file2 file3 > outfile
+
+    This command splits the input files into columns with ';' as
+    separator. It selects column 0 and 1 from file1, column 3 from file2, and
+    columns 4 and 5 from file 3. outfile contains 5 columns each separated
+    by ','.
+
+
+    pst -c -o "," -i ";" -e "0,1|3|4-6" file1 file2 file3 > outfile
+
+    Same as above but instead of outputting 5 columns, it computes and prints
+    for each row the mean and variance across each 5 columns. Please note that
+    this assumes that each column entry can be converted into a float value.
+`

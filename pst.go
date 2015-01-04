@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"runtime/debug"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -119,7 +118,7 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 				i, f)
 		}
 
-		var ps sort.IntSlice
+		var ps parseSpec
 		for _, cr := range colSpecs {
 			c := strings.TrimSpace(cr)
 
@@ -153,8 +152,7 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 				return nil, fmt.Errorf("incorrect column range specification %s", c)
 			}
 		}
-		ps.Sort()
-		spec[i] = parseSpec(ps)
+		spec[i] = ps
 	}
 	return spec, nil
 }

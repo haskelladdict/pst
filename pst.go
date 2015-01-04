@@ -18,6 +18,7 @@ import (
 var (
 	inputSpec    string
 	inputSep     string
+	outputSep    string
 	computeStats bool
 )
 
@@ -39,8 +40,10 @@ func init() {
 		`compute statistics across column values in each output row.
      Please note that each value in the output has to be convertible into a float
      for this to work. Currently the mean and standard deviation are computed`)
-	flag.StringVar(&inputSep, "s", "",
+	flag.StringVar(&inputSep, "i", "",
 		`column separator for input files. The default separator is whitespace.`)
+	flag.StringVar(&outputSep, "o", " ",
+		`column separator for output files. The default separator is a single space`)
 }
 
 func main() {
@@ -62,7 +65,7 @@ func main() {
 	}
 
 	// read input files and assemble output
-	output, err := readData(flag.Args(), colSpecs, inputSepFunc)
+	output, err := readData(flag.Args(), colSpecs, inputSepFunc, outputSep)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,7 +89,8 @@ func main() {
 
 // parseFile reads the passed in file, extracts the columns requested per spec
 // and the returns a slice with the requested column info.
-func parseFile(fileName string, spec parseSpec, sepFun func(rune) bool) (outData, error) {
+func parseFile(fileName string, spec parseSpec, sepFun func(rune) bool,
+	outSep string) (outData, error) {
 
 	file, err := os.Open(fileName)
 	if err != nil {
@@ -104,7 +108,7 @@ func parseFile(fileName string, spec parseSpec, sepFun func(rune) bool) (outData
 					"does not exist", fileName, i)
 			}
 			row += items[i]
-			row += " "
+			row += outSep
 		}
 		out = append(out, row)
 	}
@@ -168,7 +172,8 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 
 // readData parses all the output files and populates and returns the output
 // data set
-func readData(files []string, colSpecs []parseSpec, sepFun func(rune) bool) (outData, error) {
+func readData(files []string, colSpecs []parseSpec, sepFun func(rune) bool,
+	outSep string) (outData, error) {
 
 	var output outData
 	for i, file := range files {
@@ -181,31 +186,36 @@ func readData(files []string, colSpecs []parseSpec, sepFun func(rune) bool) (out
 			spec = colSpecs[len(colSpecs)-1]
 		}
 
-		parsedCols, err := parseFile(file, spec, sepFun)
+		parsedRows, err := parseFile(file, spec, sepFun, outSep)
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		// initialize output after parsing the first data file
 		if i == 0 {
-			output = make([]string, len(parsedCols))
+			output = make([]string, len(parsedRows))
 		}
 
 		// make sure input files have consistent length
-		if len(parsedCols) != len(output) {
+		if len(parsedRows) != len(output) {
 			return nil, fmt.Errorf("input file %s has %d rows which differs from %d "+
-				"in previous files", file, len(parsedCols), len(output))
+				"in previous files", file, len(parsedRows), len(output))
 		}
 
-		// append parsed data to output
-		for i, row := range parsedCols {
-			output[i] += row
+		for j, row := range parsedRows {
+			output[j] += row
 		}
 
 		// force a GC cycle
-		parsedCols = nil
+		parsedRows = nil
 		debug.FreeOSMemory()
 	}
+
+	// remove bogus final output separator
+	for i, row := range output {
+		output[i] = row[:len(row)-len(outSep)]
+	}
+
 	return output, nil
 }
 

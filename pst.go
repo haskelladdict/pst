@@ -119,32 +119,11 @@ Loop:
 	}
 
 	wg.Wait()
-
-	/*
-		// read input files and assemble output
-		output, err := readData(flag.Args(), colSpecs, inputSepFunc, outputSep)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// compute statistics or punch the data otherwise
-		if computeStats == true {
-			for _, row := range output {
-
-				items, err := splitIntoFloats(row)
-				if err != nil {
-					log.Fatal(err)
-				}
-				fmt.Println(mean(items), variance(items))
-			}
-		} else {
-			for _, row := range output {
-				fmt.Println(row)
-			}
-		}
-	*/
 }
 
+// fileParser opens fileName, parses it in a line by line fashion and sends
+// the requested columns combined into a string down the data channel.
+// If it receives on the done channel it stops processing and returns
 func fileParser(fileName string, colSpec parseSpec, sepFun func(rune) bool,
 	outSep string, data chan<- string, done <-chan struct{}, errCh chan<- error,
 	wg *sync.WaitGroup) {

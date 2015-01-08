@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"runtime/debug"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -21,9 +22,6 @@ var (
 	outputSep    string
 	computeStats bool
 )
-
-// outData collects a row oriented list of column entries
-type outData []string
 
 // parseSpec describes for each input files which columns to parse
 type parseSpec []int
@@ -47,72 +45,142 @@ func init() {
 }
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	flag.Parse()
 	if len(flag.Args()) < 1 || inputSpec == "" {
 		usage()
 		os.Exit(1)
 	}
+	fileNames := flag.Args()
+	numFileNames := len(fileNames)
 
 	inputSepFunc := getInputSepFunc(inputSep)
 
+	// parse input column specs and pad with final element if we have more files
+	// than provided spec entries
 	colSpecs, err := parseInputSpec(inputSpec)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	if len(colSpecs) > len(flag.Args()) {
+	if len(colSpecs) > numFileNames {
 		log.Fatal("there are more per file column specifiers than supplied input files")
 	}
-
-	// read input files and assemble output
-	output, err := readData(flag.Args(), colSpecs, inputSepFunc, outputSep)
-	if err != nil {
-		log.Fatal(err)
+	finalSpec := colSpecs[len(colSpecs)-1]
+	pading := numFileNames - len(colSpecs)
+	for i := 0; i <= pading; i++ {
+		colSpecs = append(colSpecs, finalSpec)
 	}
 
-	// compute statistics or punch the data otherwise
-	if computeStats == true {
-		for _, row := range output {
+	// each input file is parsed in a separate goroutine. The done channel is
+	// used to signal each goroutine to shut down. The errCh channel signals any
+	// file opening/parsing issue to the main routine.
+	var wg sync.WaitGroup
+	done := make(chan struct{}, 1)
+	errCh := make(chan error)
+	var dataChs []chan string
+	for i, name := range fileNames {
+		wg.Add(1)
+		dataCh := make(chan string)
+		dataChs = append(dataChs, dataCh)
+		go fileParser(name, colSpecs[i], inputSepFunc, outputSep, dataCh, done,
+			errCh, &wg)
+	}
 
+Loop:
+	for {
+		var row string
+		// process each data channel to read the column entries for the current row
+		for _, ch := range dataChs {
+			select {
+			case c := <-ch:
+				if c == "" {
+					done <- struct{}{}
+					break Loop
+				}
+				row += c
+				row += outputSep
+			case err := <-errCh:
+				done <- struct{}{}
+				log.Print(err)
+				break Loop
+			}
+		}
+
+		if computeStats == true {
 			items, err := splitIntoFloats(row)
 			if err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println(mean(items), variance(items))
-		}
-	} else {
-		for _, row := range output {
+		} else {
 			fmt.Println(row)
 		}
 	}
+
+	wg.Wait()
+
+	/*
+		// read input files and assemble output
+		output, err := readData(flag.Args(), colSpecs, inputSepFunc, outputSep)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// compute statistics or punch the data otherwise
+		if computeStats == true {
+			for _, row := range output {
+
+				items, err := splitIntoFloats(row)
+				if err != nil {
+					log.Fatal(err)
+				}
+				fmt.Println(mean(items), variance(items))
+			}
+		} else {
+			for _, row := range output {
+				fmt.Println(row)
+			}
+		}
+	*/
 }
 
-// parseFile reads the passed in file, extracts the columns requested per spec
-// and the returns a slice with the requested column info.
-func parseFile(fileName string, spec parseSpec, sepFun func(rune) bool,
-	outSep string) (outData, error) {
+func fileParser(fileName string, colSpec parseSpec, sepFun func(rune) bool,
+	outSep string, data chan<- string, done <-chan struct{}, errCh chan<- error,
+	wg *sync.WaitGroup) {
 
+	defer wg.Done()
+	defer close(data)
+
+	// open file
 	file, err := os.Open(fileName)
 	if err != nil {
-		return nil, err
+		errCh <- err
+		return
 	}
+	defer file.Close()
 
-	var out outData
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
+		row := make([]string, len(colSpec))
 		items := strings.FieldsFunc(strings.TrimSpace(scanner.Text()), sepFun)
-		var row string
-		for _, i := range spec {
-			if i >= len(items) {
-				return nil, fmt.Errorf("error parsing file %s: requested column %d "+
-					"does not exist", fileName, i)
+		for i, c := range colSpec {
+			if c >= len(items) {
+				errCh <- fmt.Errorf("error parsing file %s: requested column %d "+
+					"does not exist", fileName, c)
+				return
 			}
-			row += items[i]
-			row += outSep
+			row[i] = items[c]
 		}
-		out = append(out, row)
+
+		select {
+		case data <- strings.Join(row, outSep):
+		case <-done:
+			return
+		}
 	}
-	return out, nil
+
+	return
 }
 
 // parseInputSpec parses the inputSpec and turns it into a slice of parseSpecs,
@@ -168,55 +236,6 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 		spec[i] = ps
 	}
 	return spec, nil
-}
-
-// readData parses all the output files and populates and returns the output
-// data set
-func readData(files []string, colSpecs []parseSpec, sepFun func(rune) bool,
-	outSep string) (outData, error) {
-
-	var output outData
-	for i, file := range files {
-
-		// pick the correct specification for parsing columns
-		var spec parseSpec
-		if i < len(colSpecs) {
-			spec = colSpecs[i]
-		} else {
-			spec = colSpecs[len(colSpecs)-1]
-		}
-
-		parsedRows, err := parseFile(file, spec, sepFun, outSep)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// initialize output after parsing the first data file
-		if i == 0 {
-			output = make([]string, len(parsedRows))
-		}
-
-		// make sure input files have consistent length
-		if len(parsedRows) != len(output) {
-			return nil, fmt.Errorf("input file %s has %d rows which differs from %d "+
-				"in previous files", file, len(parsedRows), len(output))
-		}
-
-		for j, row := range parsedRows {
-			output[j] += row
-		}
-
-		// force a GC cycle
-		parsedRows = nil
-		debug.FreeOSMemory()
-	}
-
-	// remove bogus final output separator
-	for i, row := range output {
-		output[i] = row[:len(row)-len(outSep)]
-	}
-
-	return output, nil
 }
 
 // splitIntoFloats splits a string consisting of whitespace separated floats

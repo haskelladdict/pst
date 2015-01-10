@@ -21,6 +21,7 @@ var (
 	inputSep     string
 	outputSep    string
 	computeStats bool
+	showHelp     bool
 )
 
 // parseSpec describes for each input files which columns to parse
@@ -42,12 +43,19 @@ func init() {
 		`column separator for input files. The default separator is whitespace.`)
 	flag.StringVar(&outputSep, "o", " ",
 		`column separator for output files. The default separator is a single space.`)
+	flag.BoolVar(&showHelp, "h", false, "show basic usage info")
 }
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	flag.Parse()
+	if showHelp {
+		usage()
+		help()
+		os.Exit(0)
+	}
+
 	if len(flag.Args()) < 1 || inputSpec == "" {
 		usage()
 		os.Exit(1)
@@ -275,7 +283,7 @@ func getInputSepFunc(inputSep string) func(rune) bool {
 	return inputSepFunc
 }
 
-// usage prints a simple usage/help message
+// usage prints a simple usage message
 func usage() {
 	fmt.Println("pst             (C) 2015 M. Dittrich")
 	fmt.Println()
@@ -283,7 +291,10 @@ func usage() {
 	fmt.Println()
 	fmt.Println("options:")
 	flag.PrintDefaults()
-	fmt.Println()
+}
+
+// help prints a simple help message
+func help() {
 	fmt.Println(exampleText)
 }
 

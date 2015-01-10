@@ -80,9 +80,19 @@ func main() {
 		colSpecs = append(colSpecs, finalSpec)
 	}
 
-	// each input file is parsed in a separate goroutine. The done channel is
-	// used to signal each goroutine to shut down. The errCh channel signals any
-	// file opening/parsing issue to the main routine.
+	err = parseData(fileNames, colSpecs, inputSepFunc, outputSep)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+// parseData parses each of the data files provided on the command line in
+// in a separate goroutine. The done channel used to signal each goroutine to
+// shut down. The errCh channel signals any file opening/parsing issues back
+// to the calling function.
+func parseData(fileNames []string, colSpecs []parseSpec, inputSepFun func(rune) bool,
+	outSep string) error {
+
 	var wg sync.WaitGroup
 	done := make(chan struct{}, 1)
 	errCh := make(chan error)
@@ -91,10 +101,11 @@ func main() {
 		wg.Add(1)
 		dataCh := make(chan string)
 		dataChs = append(dataChs, dataCh)
-		go fileParser(name, colSpecs[i], inputSepFunc, outputSep, dataCh, done,
+		go fileParser(name, colSpecs[i], inputSepFun, outputSep, dataCh, done,
 			errCh, &wg)
 	}
 
+	var err error
 Loop:
 	for {
 		var row string
@@ -108,9 +119,8 @@ Loop:
 				}
 				row += c
 				row += outputSep
-			case err := <-errCh:
+			case err = <-errCh:
 				done <- struct{}{}
-				log.Print(err)
 				break Loop
 			}
 		}
@@ -118,15 +128,17 @@ Loop:
 		if computeStats == true {
 			items, err := splitIntoFloats(row)
 			if err != nil {
-				log.Fatal(err)
+				done <- struct{}{}
+				break Loop
 			}
 			fmt.Println(mean(items), variance(items))
 		} else {
 			fmt.Println(row)
 		}
 	}
-
 	wg.Wait()
+
+	return err
 }
 
 // fileParser opens fileName, parses it in a line by line fashion and sends

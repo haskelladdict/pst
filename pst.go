@@ -94,11 +94,14 @@ func parseData(fileNames []string, colSpecs []parseSpec, inputSepFun func(rune) 
 	outSep string) error {
 
 	var wg sync.WaitGroup
-	done := make(chan struct{}, 1)
-	errCh := make(chan error)
+
+	done := make(chan struct{})
+
+	errCh := make(chan error, len(fileNames))
+	defer close(errCh)
+
 	var dataChs []chan string
 	for i, name := range fileNames {
-		wg.Add(1)
 		dataCh := make(chan string)
 		dataChs = append(dataChs, dataCh)
 		go fileParser(name, colSpecs[i], inputSepFun, outputSep, dataCh, done,
@@ -114,13 +117,12 @@ Loop:
 			select {
 			case c := <-ch:
 				if c == "" {
-					done <- struct{}{}
 					break Loop
 				}
 				row += c
 				row += outputSep
 			case err = <-errCh:
-				done <- struct{}{}
+				fmt.Println(err)
 				break Loop
 			}
 		}
@@ -128,7 +130,6 @@ Loop:
 		if computeStats == true {
 			items, err := splitIntoFloats(row)
 			if err != nil {
-				done <- struct{}{}
 				break Loop
 			}
 			fmt.Println(mean(items), variance(items))
@@ -136,6 +137,7 @@ Loop:
 			fmt.Println(row)
 		}
 	}
+	close(done)
 	wg.Wait()
 
 	return err
@@ -148,6 +150,7 @@ func fileParser(fileName string, colSpec parseSpec, sepFun func(rune) bool,
 	outSep string, data chan<- string, done <-chan struct{}, errCh chan<- error,
 	wg *sync.WaitGroup) {
 
+	wg.Add(1)
 	defer wg.Done()
 	defer close(data)
 
@@ -178,7 +181,6 @@ func fileParser(fileName string, colSpec parseSpec, sepFun func(rune) bool,
 			return
 		}
 	}
-
 	return
 }
 

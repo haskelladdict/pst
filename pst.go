@@ -18,6 +18,7 @@ import (
 // command line switches
 var (
 	inputSpec    string
+	outputSpec   string
 	inputSep     string
 	outputSep    string
 	computeStats bool
@@ -44,6 +45,12 @@ func init() {
 	flag.StringVar(&outputSep, "o", " ",
 		`column separator for output files. The default separator is a single space.`)
 	flag.BoolVar(&showHelp, "h", false, "show basic usage info")
+	flag.StringVar(&outputSpec, "p", "",
+		`specify the order in which to paste the output columns.
+     The spec format is "i,j,k,l,m,..", where 0 < i,j,k,l,m, ... < numCol, and
+     numCol is the total number of columns extracted from the input files.
+     Columns can be specified multiple times. If this option is not provided
+     the columns are pasted in the order in which they are extracted.`)
 }
 
 func main() {
@@ -67,20 +74,29 @@ func main() {
 
 	// parse input column specs and pad with final element if we have more files
 	// than provided spec entries
-	colSpecs, err := parseInputSpec(inputSpec)
+	inCols, err := parseInputSpec(inputSpec)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if len(colSpecs) > numFileNames {
+	if len(inCols) > numFileNames {
 		log.Fatal("there are more per file column specifiers than supplied input files")
 	}
-	finalSpec := colSpecs[len(colSpecs)-1]
-	pading := numFileNames - len(colSpecs)
+	finalSpec := inCols[len(inCols)-1]
+	pading := numFileNames - len(inCols)
 	for i := 0; i <= pading; i++ {
-		colSpecs = append(colSpecs, finalSpec)
+		inCols = append(inCols, finalSpec)
 	}
 
-	err = parseData(fileNames, colSpecs, inputSepFunc, outputSep)
+	// parse output column spec if requested
+	var outCols parseSpec
+	if outputSpec != "" {
+		outCols, err = parseOutputSpec(outputSpec)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	err = parseData(fileNames, inCols, outCols, inputSepFunc, outputSep)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -90,13 +106,11 @@ func main() {
 // in a separate goroutine. The done channel used to signal each goroutine to
 // shut down. The errCh channel signals any file opening/parsing issues back
 // to the calling function.
-func parseData(fileNames []string, colSpecs []parseSpec, inputSepFun func(rune) bool,
-	outSep string) error {
+func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
+	inputSepFun func(rune) bool, outSep string) error {
 
 	var wg sync.WaitGroup
-
 	done := make(chan struct{})
-
 	errCh := make(chan error, len(fileNames))
 	defer close(errCh)
 
@@ -104,37 +118,46 @@ func parseData(fileNames []string, colSpecs []parseSpec, inputSepFun func(rune) 
 	for i, name := range fileNames {
 		dataCh := make(chan string)
 		dataChs = append(dataChs, dataCh)
-		go fileParser(name, colSpecs[i], inputSepFun, outputSep, dataCh, done,
+		go fileParser(name, inCols[i], inputSepFun, outputSep, dataCh, done,
 			errCh, &wg)
 	}
 
 	var err error
+	inRow := make([]string, len(dataChs))
+	outRow := make([]string, len(outCols))
 Loop:
 	for {
-		var row string
 		// process each data channel to read the column entries for the current row
-		for _, ch := range dataChs {
+		for i, ch := range dataChs {
 			select {
 			case c := <-ch:
 				if c == "" {
 					break Loop
 				}
-				row += c
-				row += outputSep
+				inRow[i] = c
 			case err = <-errCh:
 				fmt.Println(err)
 				break Loop
 			}
 		}
 
+		// assemble output based on outCols if requested
+		if len(outCols) == 0 {
+			outRow = inRow
+		} else {
+			for i, c := range outCols {
+				outRow[i] = inRow[c]
+			}
+		}
+
 		if computeStats == true {
-			items, err := splitIntoFloats(row)
+			items, err := splitIntoFloats(outRow)
 			if err != nil {
 				break Loop
 			}
 			fmt.Println(mean(items), variance(items))
 		} else {
-			fmt.Println(row)
+			fmt.Println(strings.Join(outRow, outSep))
 		}
 	}
 	close(done)
@@ -239,11 +262,28 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 	return spec, nil
 }
 
+// parseOutputSpec parses the comma separated list of output columns
+func parseOutputSpec(input string) (parseSpec, error) {
+
+	// split according to file specs
+	fileSpecs := strings.Split(input, ",")
+
+	spec := make(parseSpec, len(fileSpecs))
+
+	for i, f := range fileSpecs {
+		a, err := strconv.Atoi(f)
+		if err != nil {
+			return spec, err
+		}
+		spec[i] = a
+	}
+	return spec, nil
+}
+
 // splitIntoFloats splits a string consisting of whitespace separated floats
 // into a list of floats.
-func splitIntoFloats(floatString string) ([]float64, error) {
+func splitIntoFloats(items []string) ([]float64, error) {
 
-	items := strings.FieldsFunc(floatString, unicode.IsSpace)
 	var floatList []float64
 	for _, item := range items {
 		val, err := strconv.ParseFloat(strings.TrimSpace(item), 64)

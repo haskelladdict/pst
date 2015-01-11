@@ -23,6 +23,7 @@ var (
 	outputSpec   string
 	inputSep     string
 	outputSep    string
+	rowSpec      string
 	computeStats bool
 	showHelp     bool
 )
@@ -53,6 +54,11 @@ func init() {
      numCol is the total number of columns extracted from the input files.
      Columns can be specified multiple times. If this option is not provided
      the columns are pasted in the order in which they are extracted.`)
+	flag.StringVar(&rowSpec, "r", "",
+		`specify which rows to process and output.
+     This flag is optional. If not specified all rows will be output. Rows can
+     be specified by a comma separated list of row IDs or row ID ranges. E.g.,
+     "1,2,4-8,22"	will process rows 1, 2, 4, 5, 7, 22.`)
 }
 
 func main() {
@@ -97,6 +103,17 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+
+	// parse row ranges to process
+	/*
+		var rowRanges []rowRange
+		if rowSpec != "" {
+			rowRanges, err = parseRowSpec(rowSpec)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+	*/
 
 	err = parseData(fileNames, inCols, outCols, inputSepFunc, outputSep)
 	if err != nil {
@@ -228,35 +245,12 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 		var ps parseSpec
 		for _, cr := range colSpecs {
 			c := strings.TrimSpace(cr)
-
-			// check for possible range
-			colRange := strings.Split(c, "-")
-
-			switch len(colRange) {
-			case 1: // no range, simple columns
-				cInt, err := strconv.Atoi(c)
-				if err != nil {
-					return nil, fmt.Errorf("could not convert %s into integer representation", c)
-				}
-				ps = append(ps, cInt)
-			case 2: // range specified via begin and end
-				aInt, err := strconv.Atoi(colRange[0])
-				if err != nil {
-					return nil, fmt.Errorf("could not convert %s into integer representation",
-						colRange[0])
-				}
-
-				bInt, err := strconv.Atoi(colRange[1])
-				if err != nil {
-					return nil, fmt.Errorf("could not convert %s into integer representation",
-						colRange[1])
-				}
-
-				for i := aInt; i < bInt; i++ {
-					ps = append(ps, i)
-				}
-			default:
-				return nil, fmt.Errorf("incorrect column range specification %s", c)
+			begin, end, err := parseRange(c)
+			if err != nil {
+				return nil, err
+			}
+			for i := begin; i <= end; i++ {
+				ps = append(ps, i)
 			}
 		}
 		spec[i] = ps
@@ -267,11 +261,8 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 // parseOutputSpec parses the comma separated list of output columns
 func parseOutputSpec(input string) (parseSpec, error) {
 
-	// split according to file specs
 	fileSpecs := strings.Split(input, ",")
-
 	spec := make(parseSpec, len(fileSpecs))
-
 	for i, f := range fileSpecs {
 		a, err := strconv.Atoi(f)
 		if err != nil {
@@ -280,6 +271,57 @@ func parseOutputSpec(input string) (parseSpec, error) {
 		spec[i] = a
 	}
 	return spec, nil
+}
+
+// parseRowSpec parses the comma separated list of row ranges to output
+func parseRowSpec(input string) ([]rowRange, error) {
+
+	rowSpecs := strings.Split(input, ",")
+	rowRanges := make([]rowRange, len(rowSpecs))
+	for i, r := range rowSpecs {
+		begin, end, err := parseRange(strings.TrimSpace(r))
+		if err != nil {
+			return nil, err
+		}
+		rowRanges[i] = rowRange{begin, end}
+	}
+	return rowRanges, nil
+}
+
+// parseRange parses a range string of the form "a" or a-b", where both a and
+// b are integers and "a" is equal to "a-(a+1)". It returns the beginning and
+// end of the range
+func parseRange(input string) (int, int, error) {
+
+	// check for possible range
+	rangeSpec := strings.Split(input, "-")
+
+	var begin, end int
+	var err error
+	switch len(rangeSpec) {
+	case 1: // no range, simple columns
+		begin, err = strconv.Atoi(input)
+		if err != nil {
+			return begin, end, fmt.Errorf("could not convert %s into integer representation",
+				input)
+		}
+		end = begin
+	case 2: // range specified via begin and end
+		begin, err = strconv.Atoi(rangeSpec[0])
+		if err != nil {
+			return begin, end, fmt.Errorf("could not convert %s into integer representation",
+				rangeSpec[0])
+		}
+
+		end, err = strconv.Atoi(rangeSpec[1])
+		if err != nil {
+			return begin, end, fmt.Errorf("could not convert %s into integer representation",
+				rangeSpec[1])
+		}
+	default:
+		return begin, end, fmt.Errorf("incorrect column range specification %s", input)
+	}
+	return begin, end, nil
 }
 
 // splitIntoFloats splits a string consisting of whitespace separated floats
@@ -339,6 +381,20 @@ func getInputSepFunc(inputSep string) func(rune) bool {
 	return inputSepFunc
 }
 
+// range is used to specify row ranges to be processed
+type rowRange struct {
+	b, e int
+}
+
+// contains tests if the provided integer values in contained within [b, e) of
+// the range
+func (r *rowRange) contains(e int) bool {
+	if e < r.b || e >= r.e {
+		return false
+	}
+	return true
+}
+
 // usage prints a simple usage message
 func usage() {
 	fmt.Printf("pst version %s  (C) 2015 M. Dittrich\n", version)
@@ -360,8 +416,8 @@ const exampleText = `Notes:
     to hold the complete final output data.
 
     The input column specifiers are zero based and can include ranges. The end
-    of a range is not included in the output, i.e. the range 2-5 selects columns
-    2, 3, and 4.
+    of a range is included in the output, i.e. the range 2-5 selects columns
+    2, 3, 4, 5.
 
 Examples:
 
@@ -377,13 +433,13 @@ Examples:
     and file3. outfile contains 4 columns.
 
 
-    pst -e "0,1|3|4-6" file1 file2 file3 > outfile
+    pst -e "0,1|3|4-5" file1 file2 file3 > outfile
 
     This command selects column 0 and 1 from file1, column 3 from file2, and
     columns 4 and 5 from file 3. outfile contains 5 columns.
 
 
-    pst -o "," -i ";" -e "0,1|3|4-6" file1 file2 file3 > outfile
+    pst -o "," -i ";" -e "0,1|3|4-5" file1 file2 file3 > outfile
 
     This command splits the input files into columns with ';' as
     separator. It selects column 0 and 1 from file1, column 3 from file2, and
@@ -391,7 +447,7 @@ Examples:
     by ','.
 
 
-    pst -c -o "," -i ";" -e "0,1|3|4-6" file1 file2 file3 > outfile
+    pst -c -o "," -i ";" -e "0,1|3|4-5" file1 file2 file3 > outfile
 
     Same as above but instead of outputting 5 columns, it computes and prints
     for each row the mean and variance across each 5 columns. Please note that

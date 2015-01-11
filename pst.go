@@ -15,6 +15,8 @@ import (
 	"unicode"
 )
 
+const version = "0.1"
+
 // command line switches
 var (
 	inputSpec    string
@@ -339,7 +341,7 @@ func getInputSepFunc(inputSep string) func(rune) bool {
 
 // usage prints a simple usage message
 func usage() {
-	fmt.Println("pst             (C) 2015 M. Dittrich")
+	fmt.Printf("pst version %s  (C) 2015 M. Dittrich\n", version)
 	fmt.Println()
 	fmt.Println("usage: pst <options> file1 file2 ...")
 	fmt.Println()

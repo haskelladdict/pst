@@ -7,8 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -105,17 +107,16 @@ func main() {
 	}
 
 	// parse row ranges to process
-	/*
-		var rowRanges []rowRange
-		if rowSpec != "" {
-			rowRanges, err = parseRowSpec(rowSpec)
-			if err != nil {
-				log.Fatal(err)
-			}
+	var rowRanges rowRangeSlice
+	if rowSpec != "" {
+		rowRanges, err = parseRowSpec(rowSpec)
+		if err != nil {
+			log.Fatal(err)
 		}
-	*/
+		sort.Sort(rowRanges)
+	}
 
-	err = parseData(fileNames, inCols, outCols, inputSepFunc, outputSep)
+	err = parseData(fileNames, inCols, outCols, rowRanges, inputSepFunc, outputSep)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -126,7 +127,7 @@ func main() {
 // shut down. The errCh channel signals any file opening/parsing issues back
 // to the calling function.
 func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
-	inputSepFun func(rune) bool, outSep string) error {
+	rowRanges []rowRange, inputSepFun func(rune) bool, outSep string) error {
 
 	var wg sync.WaitGroup
 	done := make(chan struct{})
@@ -137,8 +138,8 @@ func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
 	for i, name := range fileNames {
 		dataCh := make(chan string)
 		dataChs = append(dataChs, dataCh)
-		go fileParser(name, inCols[i], inputSepFun, outputSep, dataCh, done,
-			errCh, &wg)
+		go fileParser(name, inCols[i], rowRanges, inputSepFun, outputSep, dataCh,
+			done, errCh, &wg)
 	}
 
 	var err error
@@ -188,9 +189,9 @@ Loop:
 // fileParser opens fileName, parses it in a line by line fashion and sends
 // the requested columns combined into a string down the data channel.
 // If it receives on the done channel it stops processing and returns
-func fileParser(fileName string, colSpec parseSpec, sepFun func(rune) bool,
-	outSep string, data chan<- string, done <-chan struct{}, errCh chan<- error,
-	wg *sync.WaitGroup) {
+func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
+	sepFun func(rune) bool, outSep string, data chan<- string, done <-chan struct{},
+	errCh chan<- error, wg *sync.WaitGroup) {
 
 	wg.Add(1)
 	defer wg.Done()
@@ -205,7 +206,19 @@ func fileParser(fileName string, colSpec parseSpec, sepFun func(rune) bool,
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	count := -1
+	maxRow := rowRanges.maxEntry()
 	for scanner.Scan() {
+
+		// logic for only printing requested rows
+		count++
+		if count > maxRow {
+			break
+		}
+		if !rowRanges.contains(count) {
+			continue
+		}
+
 		row := make([]string, len(colSpec))
 		items := strings.FieldsFunc(strings.TrimSpace(scanner.Text()), sepFun)
 		for i, c := range colSpec {
@@ -282,6 +295,9 @@ func parseRowSpec(input string) ([]rowRange, error) {
 		begin, end, err := parseRange(strings.TrimSpace(r))
 		if err != nil {
 			return nil, err
+		}
+		if end < begin {
+			return nil, fmt.Errorf("the end of interval %s is smaller than its beginning", r)
 		}
 		rowRanges[i] = rowRange{begin, end}
 	}
@@ -381,18 +397,60 @@ func getInputSepFunc(inputSep string) func(rune) bool {
 	return inputSepFunc
 }
 
-// range is used to specify row ranges to be processed
+// rowRange is used to specify row ranges to be processed
 type rowRange struct {
 	b, e int
 }
 
-// contains tests if the provided integer values in contained within [b, e) of
-// the range
-func (r *rowRange) contains(e int) bool {
-	if e < r.b || e >= r.e {
-		return false
+// contains tests if the provided integer value is contained within the supplied
+// row range slice. The row range is assumed to be sorted.
+// NOTE: An empty rowRangeSlice as a special case returns always true to
+// enable the default case in which no row processing is specified
+func (rr rowRangeSlice) contains(v int) bool {
+	if len(rr) == 0 {
+		return true
 	}
-	return true
+
+	for _, r := range rr {
+		if v < r.b {
+			return false
+		} else if v <= r.e {
+			return true
+		}
+	}
+	return false
+}
+
+// maxEntry contains the largest integer value in the rowRangeSlice
+// NOTE: If the rowRangeSlice is empty we return MaxInt
+func (rr rowRangeSlice) maxEntry() int {
+	if len(rr) == 0 {
+		return math.MaxInt64
+	}
+
+	var max int
+	for _, r := range rr {
+		if max < r.e {
+			max = r.e
+		}
+	}
+	return max
+}
+
+// rowRangeSlice is a helper type to enable sorting
+type rowRangeSlice []rowRange
+
+// sort functionality for rowRangeSlice
+func (rr rowRangeSlice) Len() int {
+	return len(rr)
+}
+
+func (rr rowRangeSlice) Swap(i, j int) {
+	rr[i], rr[j] = rr[j], rr[i]
+}
+
+func (rr rowRangeSlice) Less(i, j int) bool {
+	return rr[i].b < rr[j].b
 }
 
 // usage prints a simple usage message

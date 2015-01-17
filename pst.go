@@ -60,7 +60,7 @@ func init() {
 		`specify which rows to process and output.
      This flag is optional. If not specified all rows will be output. Rows can
      be specified by a comma separated list of row IDs or row ID ranges. E.g.,
-     "1,2,4-8,22"	will process rows 1, 2, 4, 5, 7, 22.`)
+     "1,2,4-8,22" will process rows 1, 2, 4, 5, 7, 22.`)
 }
 
 func main() {
@@ -134,27 +134,29 @@ func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
 	errCh := make(chan error, len(fileNames))
 	defer close(errCh)
 
-	var dataChs []chan string
+	var dataChs []chan []string
 	for i, name := range fileNames {
-		dataCh := make(chan string)
+		dataCh := make(chan []string)
 		dataChs = append(dataChs, dataCh)
-		go fileParser(name, inCols[i], rowRanges, inputSepFun, outputSep, dataCh,
-			done, errCh, &wg)
+		go fileParser(name, inCols[i], rowRanges, inputSepFun, dataCh, done, errCh, &wg)
 	}
 
 	var err error
-	inRow := make([]string, len(dataChs))
+	ic := computeNumInCols(inCols)
+	inRow := make([]string, ic)
 	outRow := make([]string, len(outCols))
 Loop:
 	for {
 		// process each data channel to read the column entries for the current row
 		for i, ch := range dataChs {
 			select {
-			case c := <-ch:
-				if c == "" {
+			case cols := <-ch:
+				if len(cols) == 0 {
 					break Loop
 				}
-				inRow[i] = c
+				for j, c := range cols {
+					inRow[i+j] = c
+				}
 			case err = <-errCh:
 				fmt.Println(err)
 				break Loop
@@ -190,7 +192,7 @@ Loop:
 // the requested columns combined into a string down the data channel.
 // If it receives on the done channel it stops processing and returns
 func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
-	sepFun func(rune) bool, outSep string, data chan<- string, done <-chan struct{},
+	sepFun func(rune) bool, data chan<- []string, done <-chan struct{},
 	errCh chan<- error, wg *sync.WaitGroup) {
 
 	wg.Add(1)
@@ -231,7 +233,7 @@ func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
 		}
 
 		select {
-		case data <- strings.Join(row, outSep):
+		case data <- row:
 		case <-done:
 			return
 		}
@@ -338,6 +340,15 @@ func parseRange(input string) (int, int, error) {
 		return begin, end, fmt.Errorf("incorrect column range specification %s", input)
 	}
 	return begin, end, nil
+}
+
+// computeNumInCols computes the total number of input columns based on the inputSpec
+func computeNumInCols(inCols []parseSpec) int {
+	var numCols int
+	for _, i := range inCols {
+		numCols += len(i)
+	}
+	return numCols
 }
 
 // splitIntoFloats splits a string consisting of whitespace separated floats

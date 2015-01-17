@@ -238,6 +238,9 @@ func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
 			return
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		errCh <- err
+	}
 	return
 }
 

@@ -93,7 +93,7 @@ func main() {
 	}
 	finalSpec := inCols[len(inCols)-1]
 	pading := numFileNames - len(inCols)
-	for i := 0; i <= pading; i++ {
+	for i := 0; i < pading; i++ {
 		inCols = append(inCols, finalSpec)
 	}
 
@@ -145,17 +145,20 @@ func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
 	ic := computeNumInCols(inCols)
 	inRow := make([]string, ic)
 	outRow := make([]string, len(outCols))
+	output := bufio.NewWriter(os.Stdout)
 Loop:
 	for {
 		// process each data channel to read the column entries for the current row
-		for i, ch := range dataChs {
+		var in int
+		for _, ch := range dataChs {
 			select {
 			case cols := <-ch:
 				if len(cols) == 0 {
 					break Loop
 				}
-				for j, c := range cols {
-					inRow[i+j] = c
+				for _, c := range cols {
+					inRow[in] = c
+					in++
 				}
 			case err = <-errCh:
 				fmt.Println(err)
@@ -177,11 +180,12 @@ Loop:
 			if err != nil {
 				break Loop
 			}
-			fmt.Println(mean(items), variance(items))
+			fmt.Fprintf(output, "%f %f\n", mean(items), variance(items))
 		} else {
-			fmt.Println(strings.Join(outRow, outSep))
+			fmt.Fprintf(output, "%s\n", strings.Join(outRow, outSep))
 		}
 	}
+	output.Flush()
 	close(done)
 	wg.Wait()
 

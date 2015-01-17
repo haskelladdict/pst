@@ -180,7 +180,7 @@ Loop:
 			if err != nil {
 				break Loop
 			}
-			fmt.Fprintf(output, "%f %f\n", mean(items), variance(items))
+			fmt.Fprintf(output, "%15.15f %15.15f\n", mean(items), variance(items))
 		} else {
 			fmt.Fprintf(output, "%s\n", strings.Join(outRow, outSep))
 		}

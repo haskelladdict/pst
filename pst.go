@@ -73,7 +73,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if len(flag.Args()) < 1 || inputSpec == "" {
+	if len(flag.Args()) < 1 {
 		usage()
 		os.Exit(1)
 	}
@@ -138,15 +138,28 @@ func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
 	for i, name := range fileNames {
 		dataCh := make(chan []string)
 		dataChs = append(dataChs, dataCh)
+		wg.Add(1)
 		go fileParser(name, inCols[i], rowRanges, inputSepFun, dataCh, done, errCh, &wg)
 	}
 
+	err := processData(dataChs, errCh, outCols, outSep)
+	close(done)
+	wg.Wait()
+
+	return err
+}
+
+// processData goes through all channels delivering data assembling each row
+// and then printing it out
+func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
+	outSep string) error {
+
 	var err error
-	ic := computeNumInCols(inCols)
-	inRow := make([]string, ic)
+	var row int
+	var inRow []string
 	outRow := make([]string, len(outCols))
 	output := bufio.NewWriter(os.Stdout)
-Loop:
+	defer output.Flush()
 	for {
 		// process each data channel to read the column entries for the current row
 		var in int
@@ -154,15 +167,22 @@ Loop:
 			select {
 			case cols := <-ch:
 				if len(cols) == 0 {
-					break Loop
+					return nil // normal exit path
 				}
-				for _, c := range cols {
-					inRow[in] = c
-					in++
+				// When we hit the first row we initialize the inRow array. For all
+				// subsequent rows we can recycle it for efficiency (UGLY I know)
+				if row == 0 {
+					for _, c := range cols {
+						inRow = append(inRow, c)
+					}
+				} else {
+					for _, c := range cols {
+						inRow[in] = c
+						in++
+					}
 				}
 			case err = <-errCh:
-				fmt.Println(err)
-				break Loop
+				return err
 			}
 		}
 
@@ -178,18 +198,14 @@ Loop:
 		if computeStats == true {
 			items, err := splitIntoFloats(outRow)
 			if err != nil {
-				break Loop
+				return err
 			}
 			fmt.Fprintf(output, "%15.15f %15.15f\n", mean(items), variance(items))
 		} else {
 			fmt.Fprintf(output, "%s\n", strings.Join(outRow, outSep))
 		}
+		row++
 	}
-	output.Flush()
-	close(done)
-	wg.Wait()
-
-	return err
 }
 
 // fileParser opens fileName, parses it in a line by line fashion and sends
@@ -199,7 +215,6 @@ func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
 	sepFun func(rune) bool, data chan<- []string, done <-chan struct{},
 	errCh chan<- error, wg *sync.WaitGroup) {
 
-	wg.Add(1)
 	defer wg.Done()
 	defer close(data)
 
@@ -225,15 +240,22 @@ func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
 			continue
 		}
 
-		row := make([]string, len(colSpec))
+		var row []string
 		items := strings.FieldsFunc(strings.TrimSpace(scanner.Text()), sepFun)
-		for i, c := range colSpec {
-			if c >= len(items) {
-				errCh <- fmt.Errorf("error parsing file %s: requested column %d "+
-					"does not exist", fileName, c)
-				return
+
+		// an empty colSpec signals all rows
+		if len(colSpec) == 0 {
+			row = items
+		} else {
+			row := make([]string, len(colSpec))
+			for i, c := range colSpec {
+				if c >= len(items) {
+					errCh <- fmt.Errorf("error parsing file %s: requested column %d "+
+						"does not exist", fileName, c)
+					return
+				}
+				row[i] = items[c]
 			}
-			row[i] = items[c]
 		}
 
 		select {
@@ -249,8 +271,13 @@ func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
 }
 
 // parseInputSpec parses the inputSpec and turns it into a slice of parseSpecs,
-// one for each input file
+// one for each input file. An empty inputSpec is assumed to imply that the
+// user wants to grab all columns in each file
 func parseInputSpec(input string) ([]parseSpec, error) {
+
+	if len(input) == 0 {
+		return []parseSpec{parseSpec{}}, nil
+	}
 
 	// split according to file specs
 	fileSpecs := strings.Split(input, "|")
@@ -347,15 +374,6 @@ func parseRange(input string) (int, int, error) {
 		return begin, end, fmt.Errorf("incorrect column range specification %s", input)
 	}
 	return begin, end, nil
-}
-
-// computeNumInCols computes the total number of input columns based on the inputSpec
-func computeNumInCols(inCols []parseSpec) int {
-	var numCols int
-	for _, i := range inCols {
-		numCols += len(i)
-	}
-	return numCols
 }
 
 // splitIntoFloats splits a string consisting of whitespace separated floats

@@ -243,13 +243,12 @@ func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
 		}
 
 		var row []string
-		items := strings.FieldsFunc(strings.TrimSpace(scanner.Text()), sepFun)
-
 		// an empty colSpec signals all rows
 		if len(colSpec) == 0 {
-			row = items
+			row = append(row, scanner.Text())
 		} else {
 			row := make([]string, len(colSpec))
+			items := strings.FieldsFunc(strings.TrimSpace(scanner.Text()), sepFun)
 			for i, c := range colSpec {
 				if c >= len(items) {
 					errCh <- fmt.Errorf("error parsing file %s: requested column %d "+

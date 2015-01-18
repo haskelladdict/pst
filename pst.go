@@ -21,6 +21,7 @@ const version = "0.1"
 
 // command line switches
 var (
+	numThreads   int
 	inputSpec    string
 	outputSpec   string
 	inputSep     string
@@ -61,10 +62,11 @@ func init() {
      This flag is optional. If not specified all rows will be output. Rows can
      be specified by a comma separated list of row IDs or row ID ranges. E.g.,
      "1,2,4-8,22" will process rows 1, 2, 4, 5, 7, 22.`)
+	flag.IntVar(&numThreads, "n", 1, "number of threads (default: 1)")
 }
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	runtime.GOMAXPROCS(numThreads)
 
 	flag.Parse()
 	if showHelp {

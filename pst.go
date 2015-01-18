@@ -159,17 +159,27 @@ func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 	var err error
 	var row int
 	var inRow []string
+	defaultInRows := make([][]string, len(dataChs))
+	deadChannels := make([]bool, len(dataChs))
+	activeChannels := len(dataChs)
 	outRow := make([]string, len(outCols))
 	output := bufio.NewWriter(os.Stdout)
 	defer output.Flush()
 	for {
 		// process each data channel to read the column entries for the current row
 		var in int
-		for _, ch := range dataChs {
+		for i, ch := range dataChs {
 			select {
 			case cols := <-ch:
-				if len(cols) == 0 {
-					return nil // normal exit path
+				if cols == nil {
+					if !deadChannels[i] {
+						deadChannels[i] = true
+						activeChannels--
+					}
+					if activeChannels == 0 {
+						return nil
+					}
+					cols = defaultInRows[i]
 				}
 				// When we hit the first row we initialize the inRow array. For all
 				// subsequent rows we can recycle it for efficiency (UGLY I know)
@@ -177,6 +187,7 @@ func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 					for _, c := range cols {
 						inRow = append(inRow, c)
 					}
+					defaultInRows[i] = make([]string, len(cols))
 				} else {
 					for _, c := range cols {
 						inRow[in] = c

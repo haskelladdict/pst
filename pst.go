@@ -138,7 +138,7 @@ func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
 
 	var dataChs []chan []string
 	for i, name := range fileNames {
-		dataCh := make(chan []string)
+		dataCh := make(chan []string, 10000) // use buffered channels to not stall IO
 		dataChs = append(dataChs, dataCh)
 		wg.Add(1)
 		go fileParser(name, inCols[i], rowRanges, inputSepFun, dataCh, done, errCh, &wg)

@@ -82,6 +82,11 @@ func main() {
 	fileNames := flag.Args()
 	numFileNames := len(fileNames)
 
+	// an outputSpec requires a valid inputSpec
+	if len(outputSpec) != 0 && len(inputSpec) == 0 {
+		log.Fatal("An output paste spec requires an input column spec.")
+	}
+
 	inputSepFunc := getInputSepFunc(inputSep)
 
 	// parse input column specs and pad with final element if we have more files
@@ -106,6 +111,10 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+	}
+	min, max := outCols.minMax()
+	if max >= len(inCols) || min < 0 {
+		log.Fatal("at least one output column specifier is out of bounds or negative.")
 	}
 
 	// parse row ranges to process
@@ -440,6 +449,20 @@ func getInputSepFunc(inputSep string) func(rune) bool {
 		}
 	}
 	return inputSepFunc
+}
+
+// minMax returns the minimum and maximum value in a parseSpec
+func (p parseSpec) minMax() (int, int) {
+	maxVal := -math.MaxInt64
+	minVal := math.MaxInt64
+	for _, v := range p {
+		if v > maxVal {
+			maxVal = v
+		} else if v < minVal {
+			minVal = v
+		}
+	}
+	return minVal, maxVal
 }
 
 // rowRange is used to specify row ranges to be processed

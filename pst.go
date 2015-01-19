@@ -156,8 +156,6 @@ func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
 func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 	outSep string) error {
 
-	var err error
-	var row int
 	var inRow []string
 	defaultInRows := make([][]string, len(dataChs))
 	deadChannels := make([]bool, len(dataChs))
@@ -165,7 +163,7 @@ func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 	outRow := make([]string, len(outCols))
 	output := bufio.NewWriter(os.Stdout)
 	defer output.Flush()
-	for {
+	for row := 0; ; row++ {
 		// process each data channel to read the column entries for the current row
 		var in int
 		for i, ch := range dataChs {
@@ -177,7 +175,7 @@ func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 						activeChannels--
 					}
 					if activeChannels == 0 {
-						return nil
+						return nil // all channels are done reading so we're done, too
 					}
 					cols = defaultInRows[i]
 				}
@@ -194,7 +192,7 @@ func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 						in++
 					}
 				}
-			case err = <-errCh:
+			case err := <-errCh:
 				return err
 			}
 		}
@@ -217,7 +215,6 @@ func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 		} else {
 			fmt.Fprintf(output, "%s\n", strings.Join(outRow, outSep))
 		}
-		row++
 	}
 }
 
@@ -258,7 +255,7 @@ func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
 		if len(colSpec) == 0 {
 			row = append(row, scanner.Text())
 		} else {
-			row := make([]string, len(colSpec))
+			row = make([]string, len(colSpec))
 			items := strings.FieldsFunc(strings.TrimSpace(scanner.Text()), sepFun)
 			for i, c := range colSpec {
 				if c >= len(items) {

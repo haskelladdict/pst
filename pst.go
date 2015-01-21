@@ -113,7 +113,7 @@ func main() {
 		}
 	}
 	min, max := outCols.minMax()
-	if max >= len(inCols) || min < 0 {
+	if max > len(inCols) || min < 0 {
 		log.Fatal("at least one output column specifier is out of bounds or negative.")
 	}
 

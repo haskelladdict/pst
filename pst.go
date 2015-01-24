@@ -19,14 +19,19 @@ import (
 
 const version = "0.1"
 
+// Spec describes what to parse and how to assemble the output
+type Spec struct {
+	input     string
+	output    string
+	inputSep  string
+	outputSep string
+	rows      string
+}
+
 // command line switches
 var (
 	numThreads   int
-	inputSpec    string
-	outputSpec   string
-	inputSep     string
-	outputSep    string
-	rowSpec      string
+	spec         Spec
 	computeStats bool
 	showHelp     bool
 )
@@ -35,7 +40,7 @@ var (
 type parseSpec []int
 
 func init() {
-	flag.StringVar(&inputSpec, "e", "",
+	flag.StringVar(&spec.input, "e", "",
 		`specify the input columns to extract.
      The spec format is "<column list file1>|<column list file2>|..."
      where each column specifier is of the form col_i,col_j,col_k-col_n, ....
@@ -46,18 +51,18 @@ func init() {
 		`compute statistics across column values in each output row.
      Please note that each value in the output has to be convertible into a float
      for this to work. Currently the mean and standard deviation are computed.`)
-	flag.StringVar(&inputSep, "i", "",
+	flag.StringVar(&spec.inputSep, "i", "",
 		`column separator for input files. The default separator is whitespace.`)
-	flag.StringVar(&outputSep, "o", " ",
+	flag.StringVar(&spec.outputSep, "o", " ",
 		`column separator for output files. The default separator is a single space.`)
 	flag.BoolVar(&showHelp, "h", false, "show basic usage info")
-	flag.StringVar(&outputSpec, "p", "",
+	flag.StringVar(&spec.output, "p", "",
 		`specify the order in which to paste the output columns.
      The spec format is "i,j,k,l,m,..", where 0 < i,j,k,l,m, ... < numCol, and
      numCol is the total number of columns extracted from the input files.
      Columns can be specified multiple times. If this option is not provided
      the columns are pasted in the order in which they are extracted.`)
-	flag.StringVar(&rowSpec, "r", "",
+	flag.StringVar(&spec.rows, "r", "",
 		`specify which rows to process and output.
      This flag is optional. If not specified all rows will be output. Rows can
      be specified by a comma separated list of row IDs or row ID ranges. E.g.,
@@ -83,15 +88,15 @@ func main() {
 	numFileNames := len(fileNames)
 
 	// an outputSpec requires a valid inputSpec
-	if len(outputSpec) != 0 && len(inputSpec) == 0 {
+	if len(spec.output) != 0 && len(spec.input) == 0 {
 		log.Fatal("An output paste spec requires an input column spec.")
 	}
 
-	inputSepFunc := getInputSepFunc(inputSep)
+	inputSepFunc := getInputSepFunc(spec.inputSep)
 
 	// parse input column specs and pad with final element if we have more files
 	// than provided spec entries
-	inCols, err := parseInputSpec(inputSpec)
+	inCols, err := parseInputSpec(spec.input)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -106,8 +111,8 @@ func main() {
 
 	// parse output column spec if requested
 	var outCols parseSpec
-	if outputSpec != "" {
-		outCols, err = parseOutputSpec(outputSpec)
+	if spec.output != "" {
+		outCols, err = parseOutputSpec(spec.output)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -119,15 +124,15 @@ func main() {
 
 	// parse row ranges to process
 	var rowRanges rowRangeSlice
-	if rowSpec != "" {
-		rowRanges, err = parseRowSpec(rowSpec)
+	if spec.rows != "" {
+		rowRanges, err = parseRowSpec(spec.rows)
 		if err != nil {
 			log.Fatal(err)
 		}
 		sort.Sort(rowRanges)
 	}
 
-	err = parseData(fileNames, inCols, outCols, rowRanges, inputSepFunc, outputSep)
+	err = parseData(fileNames, inCols, outCols, rowRanges, inputSepFunc, spec.outputSep)
 	if err != nil {
 		log.Fatal(err)
 	}

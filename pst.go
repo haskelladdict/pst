@@ -58,10 +58,11 @@ func init() {
 	flag.BoolVar(&showHelp, "h", false, "show basic usage info")
 	flag.StringVar(&spec.output, "p", "",
 		`specify the order in which to paste the output columns.
-     The spec format is "i,j,k,l,m,..", where 0 < i,j,k,l,m, ... < numCol, and
+     The spec format is "i,j,k-l,m,..", where 0 < i,j,k,l,m, ... < numCol, and
      numCol is the total number of columns extracted from the input files.
-     Columns can be specified multiple times. If this option is not provided
-     the columns are pasted in the order in which they are extracted.`)
+     Columns can be specified multiple times and ranges are accepted. If this
+     option is not provided the columns are pasted in the order in which they
+     are extracted.`)
 	flag.StringVar(&spec.rows, "r", "",
 		`specify which rows to process and output.
      This flag is optional. If not specified all rows will be output. Rows can
@@ -321,9 +322,7 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 			if err != nil {
 				return nil, err
 			}
-			for i := begin; i <= end; i++ {
-				ps = append(ps, i)
-			}
+			ps = append(ps, makeIntRange(begin, end)...)
 		}
 		spec[i] = ps
 	}
@@ -334,13 +333,13 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 func parseOutputSpec(input string) (parseSpec, error) {
 
 	fileSpecs := strings.Split(input, ",")
-	spec := make(parseSpec, len(fileSpecs))
-	for i, f := range fileSpecs {
-		a, err := strconv.Atoi(f)
+	var spec parseSpec
+	for _, f := range fileSpecs {
+		begin, end, err := parseRange(f)
 		if err != nil {
 			return spec, err
 		}
-		spec[i] = a
+		spec = append(spec, makeIntRange(begin, end)...)
 	}
 	return spec, nil
 }
@@ -454,6 +453,17 @@ func getInputSepFunc(inputSep string) func(rune) bool {
 		}
 	}
 	return inputSepFunc
+}
+
+// makeIntRange creates a slice of consecutive ints starting at begin until
+// and includise end.
+// NOTE: This function assumes end >= begin
+func makeIntRange(begin, end int) []int {
+	r := make([]int, 0, end-begin+1)
+	for i := begin; i <= end; i++ {
+		r = append(r, i)
+	}
+	return r
 }
 
 // minMax returns the minimum and maximum value in a parseSpec

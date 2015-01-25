@@ -47,7 +47,7 @@ func Test_parseInputSpec(t *testing.T) {
 	}
 
 	if len(result) != len(expectedResult) {
-		t.Errorf("length mismatch between expected and computed result %v", result)
+		t.Errorf("length mismatch between expected and computed result")
 		return
 	}
 
@@ -63,8 +63,8 @@ func Test_parseInputSpec(t *testing.T) {
 // input spec string
 func Test_parseOutputSpec(t *testing.T) {
 
-	inputString := "0,1,10,14,7,2,1,4"
-	expectedResult := parseSpec{0, 1, 10, 14, 7, 2, 1, 4}
+	inputString := "0,1-3,10,14,7,2,1,4"
+	expectedResult := parseSpec{0, 1, 2, 3, 10, 14, 7, 2, 1, 4}
 	result, err := parseOutputSpec(inputString)
 	if err != nil {
 		t.Error(err)
@@ -72,7 +72,7 @@ func Test_parseOutputSpec(t *testing.T) {
 	}
 
 	if len(result) != len(expectedResult) {
-		t.Errorf("length mismatch between expected and computed result %v", result)
+		t.Errorf("length mismatch between expected and computed result")
 		return
 	}
 

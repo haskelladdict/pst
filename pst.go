@@ -60,7 +60,7 @@ func init() {
 		`specify the order in which to paste the output columns.
      The spec format is "i,j,k-l,m,..", where 0 < i,j,k,l,m, ... < numCol, and
      numCol is the total number of columns extracted from the input files.
-     Columns can be specified multiple times and ranges are accepted. If this
+          Columns can be specified multiple times and ranges are accepted. If this
      option is not provided the columns are pasted in the order in which they
      are extracted.`)
 	flag.StringVar(&spec.rows, "r", "",

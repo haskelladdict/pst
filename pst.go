@@ -309,7 +309,7 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 	// split according to column specs
 	for i, f := range fileSpecs {
 		colSpecs := strings.Split(f, ",")
-		if len(colSpecs) == 0 {
+		if len(colSpecs) == 1 {
 			return nil, fmt.Errorf("empty input specification for file entry #%d: %s",
 				i, f)
 		}

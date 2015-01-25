@@ -47,7 +47,7 @@ func Test_parseInputSpec(t *testing.T) {
 	}
 
 	if len(result) != len(expectedResult) {
-		t.Error("length mismatch between expected and computed result")
+		t.Errorf("length mismatch between expected and computed result %v", result)
 		return
 	}
 

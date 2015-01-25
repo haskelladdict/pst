@@ -53,9 +53,32 @@ func Test_parseInputSpec(t *testing.T) {
 
 	for i, r := range result {
 		if !parseSpecsIdentical(r, expectedResult[i]) {
-			t.Error("expected and computed results don't match")
+			t.Errorf("expected %v and computed %v results don't match", r, expectedResult[i])
 			return
 		}
+	}
+}
+
+// Test_parseInputSpec checks that parseInputSpec() properly parses the provided
+// input spec string
+func Test_parseOutputSpec(t *testing.T) {
+
+	inputString := "0,1,10,14,7,2,1,4"
+	expectedResult := parseSpec{0, 1, 10, 14, 7, 2, 1, 4}
+	result, err := parseOutputSpec(inputString)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if len(result) != len(expectedResult) {
+		t.Errorf("length mismatch between expected and computed result %v", result)
+		return
+	}
+
+	if !parseSpecsIdentical(result, expectedResult) {
+		t.Errorf("expected %v and computed %v results don't match", result, expectedResult)
+		return
 	}
 }
 

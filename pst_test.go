@@ -82,6 +82,34 @@ func Test_parseOutputSpec(t *testing.T) {
 	}
 }
 
+// Test_parseRowSpec checks that parseRowSpec() properly parses the provided
+// row spec string
+func Test_parseRowSpec(t *testing.T) {
+
+	inputString := "0,1-3,10,14,7,2,1-4"
+	expectedResult := []rowRange{rowRange{0, 0}, rowRange{1, 3}, rowRange{10, 10},
+		rowRange{14, 14}, rowRange{7, 7}, rowRange{2, 2}, rowRange{1, 4}}
+	result, err := parseRowSpec(inputString)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if len(result) != len(expectedResult) {
+		t.Errorf("length mismatch between expected and computed result")
+		return
+	}
+
+	var er rowRange
+	for i, rr := range result {
+		er = expectedResult[i]
+		if rr.b != er.b || rr.e != er.e {
+			t.Errorf("expected %v and computed %v results don't match", rr, er)
+			return
+		}
+	}
+}
+
 // parseSpecsIdentical is a helper function for checking two parseSpecs for identity
 func parseSpecsIdentical(x, y parseSpec) bool {
 	if len(x) != len(y) {

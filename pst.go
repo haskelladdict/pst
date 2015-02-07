@@ -39,6 +39,12 @@ var (
 // parseSpec describes for each input files which columns to parse
 type parseSpec []int
 
+// computeAction describes a computation to performed on row/column data
+type computeAction func([]float64) float64
+
+// computeSpec describes a list of computeActions to be performed on row/column data
+type computeSpec []computeAction
+
 func init() {
 	flag.StringVar(&spec.input, "i", "",
 		`specify the input columns to extract. This flag is optional.
@@ -51,7 +57,17 @@ func init() {
 	flag.StringVar(&spec.compute, "c", "",
 		`compute statistics across column values in each output row.
      Please note that each value in the output has to be convertible into a float
-     for this to work. Currently the mean and standard deviation are computed.`)
+     for this to work. The computed statistics are determined by a comma separated
+     list of actions. The result of each action is printed as a separate column value.
+     Currently supported compute actions are:
+         - mean  : compute row mean
+         - std   : compute row standard deviation
+         - var   : compute row variance
+         - median: compute row median
+         - max   : compute maximum value of row
+         - min   : compute minimum value of row
+     Thus, "mean, std, median" will result in three columns per row, with the
+     mean, standard deviation and median of the raw column values.`)
 	flag.StringVar(&spec.inputSep, "s", "",
 		`column separator for input files. The default separator is whitespace.`)
 	flag.StringVar(&spec.outputSep, "t", " ",
@@ -107,13 +123,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// parse row ranges to process
 	rowRanges, err := getRowSpec(spec.rows)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = parseData(fileNames, inCols, outCols, rowRanges, inputSepFunc, spec.outputSep)
+	computeActions, err := getComputeSpecs(spec.compute)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = parseData(fileNames, inCols, outCols, rowRanges, inputSepFunc,
+		spec.outputSep, computeActions)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -124,7 +145,8 @@ func main() {
 // shut down. The errCh channel signals any file opening/parsing issues back
 // to the calling function.
 func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
-	rowRanges []rowRange, inputSepFun func(rune) bool, outSep string) error {
+	rowRanges []rowRange, inputSepFun func(rune) bool, outSep string,
+	actions computeSpec) error {
 
 	var wg sync.WaitGroup
 	done := make(chan struct{})
@@ -139,7 +161,7 @@ func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
 		go fileParser(name, inCols[i], rowRanges, inputSepFun, dataCh, done, errCh, &wg)
 	}
 
-	err := processData(dataChs, errCh, outCols, outSep)
+	err := processData(dataChs, errCh, outCols, outSep, actions)
 	close(done)
 	wg.Wait()
 
@@ -149,7 +171,7 @@ func parseData(fileNames []string, inCols []parseSpec, outCols parseSpec,
 // processData goes through all channels delivering data assembling each row
 // and then printing it out
 func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
-	outSep string) error {
+	outSep string, actions computeSpec) error {
 
 	var inRow []string
 	defaultInRows := make([][]string, len(dataChs))
@@ -201,16 +223,30 @@ func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 			}
 		}
 
-		if len(spec.compute) > 0 {
-			items, err := splitIntoFloats(outRow)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(output, "%15.15f %15.15f\n", mean(items), variance(items))
-		} else {
-			fmt.Fprintf(output, "%s\n", strings.Join(outRow, outSep))
+		if err := printRow(output, outRow, outSep, actions); err != nil {
+			return err
 		}
 	}
+}
+
+// printRow creates output based on the provided row. If a computeSpec is provided
+// the requested compute actions will be performed and printed. If computeSpec
+// is empty the row will be printed as is.
+func printRow(output *bufio.Writer, outRow []string, outSep string, actions computeSpec) error {
+
+	if len(actions) > 0 {
+		items, err := splitIntoFloats(outRow)
+		if err != nil {
+			return err
+		}
+		outRow = make([]string, len(actions))
+		for i, a := range actions {
+			outRow[i] = fmt.Sprintf("%15.15f", a(items))
+		}
+	}
+
+	fmt.Fprintf(output, "%s\n", strings.Join(outRow, outSep))
+	return nil
 }
 
 // fileParser opens fileName, parses it in a line by line fashion and sends
@@ -403,6 +439,47 @@ func parseRowSpec(input string) ([]rowRange, error) {
 	return rowRanges, nil
 }
 
+// getComputeSpecs parses, checks and returns the compute actions to be
+// performed on the data set
+func getComputeSpecs(actions string) (computeSpec, error) {
+
+	var specs computeSpec
+	if actions == "" {
+		return specs, nil
+	}
+	return parseComputeSpec(actions)
+}
+
+// parseComputeSpec parses the comma separated list of compute actions
+func parseComputeSpec(actions string) (computeSpec, error) {
+
+	var act computeAction
+	items := strings.Split(actions, ",")
+	specs := make(computeSpec, len(items))
+	for i, r := range items {
+		val := strings.TrimSpace(r)
+		fmt.Println(val)
+		switch val {
+		case "mean":
+			act = mean
+		case "var":
+			act = variance
+		case "std":
+			act = func(x []float64) float64 { return math.Sqrt(variance(x)) }
+		case "max":
+			act = max
+		case "min":
+			act = min
+		case "median":
+			act = median
+		default:
+			return specs, fmt.Errorf("Encountered unknown compute action %s", val)
+		}
+		specs[i] = act
+	}
+	return specs, nil
+}
+
 // parseRange parses a range string of the form "a" or a-b", where both a and
 // b are integers and "a" is equal to "a-(a+1)". It returns the beginning and
 // end of the range
@@ -452,31 +529,6 @@ func splitIntoFloats(items []string) ([]float64, error) {
 		floatList = append(floatList, val)
 	}
 	return floatList, nil
-}
-
-// mean computes the mean value of a list of float64 values
-func mean(items []float64) float64 {
-	var mean float64
-	for _, x := range items {
-		mean += x
-	}
-	return mean / float64(len(items))
-}
-
-// variance computes the variance of a list of float64 values
-func variance(items []float64) float64 {
-	var mk, qk float64 // helper values for one pass variance computation
-	for i, d := range items {
-		k := float64(i + 1)
-		qk += (k - 1) * (d - mk) * (d - mk) / k
-		mk += (d - mk) / k
-	}
-
-	var variance float64
-	if len(items) > 1 {
-		variance = qk / float64(len(items)-1)
-	}
-	return variance
 }
 
 // totalLen computes the totla number of items contained in a list of parseSpecs

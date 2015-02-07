@@ -1,7 +1,8 @@
 pst
 ===
 
-pst is a command line tool for processing and combining columns across column oriented files.
+pst is a command line tool for processing and combining columns across column oriented 
+files. pst can also compute row-wise statistics (such as mean, median, variance, etc).
 
 usage
 -----
@@ -43,7 +44,6 @@ usage
         rows 1, 2, 4, 5, 7, 22.
       -s="": column separator for input files. The default separator is whitespace.
       -t=" ": column separator for output files. The default separator is a single space.
-      -o=" ": column separator for output files. The default separator is a single space.
 
 Notes
 ------

@@ -25,15 +25,15 @@ type Spec struct {
 	output    string
 	inputSep  string
 	outputSep string
+	compute   string
 	rows      string
 }
 
 // command line switches
 var (
-	numThreads   int
-	spec         Spec
-	computeStats bool
-	showHelp     bool
+	numThreads int
+	spec       Spec
+	showHelp   bool
 )
 
 // parseSpec describes for each input files which columns to parse
@@ -48,7 +48,7 @@ func init() {
      specifier i will be applied to files i through N, where N is the total
      number of files provided. If this flag is not provided all input columns
      will be extracted.`)
-	flag.BoolVar(&computeStats, "c", false,
+	flag.StringVar(&spec.compute, "c", "",
 		`compute statistics across column values in each output row.
      Please note that each value in the output has to be convertible into a float
      for this to work. Currently the mean and standard deviation are computed.`)
@@ -96,42 +96,21 @@ func main() {
 
 	inputSepFunc := getInputSepFunc(spec.inputSep)
 
-	// parse input column specs and pad with final element if we have more files
-	// than provided spec entries
-	inCols, err := parseInputSpec(spec.input)
+	inCols, err := getInputSpec(spec.input, numFileNames)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if len(inCols) > numFileNames {
-		log.Fatal("there are more per file column specifiers than supplied input files")
-	}
-	finalSpec := inCols[len(inCols)-1]
-	pading := numFileNames - len(inCols)
-	for i := 0; i < pading; i++ {
-		inCols = append(inCols, finalSpec)
-	}
 
-	// parse output column spec if requested
-	var outCols parseSpec
-	if spec.output != "" {
-		outCols, err = parseOutputSpec(spec.output)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	min, max := outCols.minMax()
-	if max > len(inCols) || min < 0 {
-		log.Fatal("at least one output column specifier is out of bounds or negative.")
+	totNumCols := totalLen(inCols)
+	outCols, err := getOutputSpec(spec.output, totNumCols)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	// parse row ranges to process
-	var rowRanges rowRangeSlice
-	if spec.rows != "" {
-		rowRanges, err = parseRowSpec(spec.rows)
-		if err != nil {
-			log.Fatal(err)
-		}
-		sort.Sort(rowRanges)
+	rowRanges, err := getRowSpec(spec.rows)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	err = parseData(fileNames, inCols, outCols, rowRanges, inputSepFunc, spec.outputSep)
@@ -222,7 +201,7 @@ func processData(dataChs []chan []string, errCh <-chan error, outCols parseSpec,
 			}
 		}
 
-		if computeStats == true {
+		if len(spec.compute) > 0 {
 			items, err := splitIntoFloats(outRow)
 			if err != nil {
 				return err
@@ -295,6 +274,30 @@ func fileParser(fileName string, colSpec parseSpec, rowRanges rowRangeSlice,
 	return
 }
 
+// getInputSpec parses, checks, and the returns the inputSpecs
+// NOTE: We pad the list of parseSpecs with the final supplied entry if there
+// are more files than provided spec entries
+func getInputSpec(input string, numFiles int) ([]parseSpec, error) {
+	var inCols []parseSpec
+	var err error
+	if input == "" {
+		return inCols, err
+	}
+
+	if inCols, err = parseInputSpec(input); err != nil {
+		return inCols, err
+	}
+	if len(inCols) > numFiles {
+		return inCols, fmt.Errorf("there are more per file column specifiers than supplied input files")
+	}
+	finalSpec := inCols[len(inCols)-1]
+	pading := numFiles - len(inCols)
+	for i := 0; i < pading; i++ {
+		inCols = append(inCols, finalSpec)
+	}
+	return inCols, err
+}
+
 // parseInputSpec parses the inputSpec and turns it into a slice of parseSpecs,
 // one for each input file. An empty inputSpec is assumed to imply that the
 // user wants to grab all columns in each file
@@ -330,6 +333,27 @@ func parseInputSpec(input string) ([]parseSpec, error) {
 	return spec, nil
 }
 
+// getOutputSpec parses, checks and then returns the outputSpecs
+func getOutputSpec(output string, numCols int) (parseSpec, error) {
+
+	var outCols parseSpec
+	var err error
+	if output == "" {
+		return outCols, err
+	}
+
+	if outCols, err = parseOutputSpec(output); err != nil {
+		return outCols, err
+	}
+
+	min, max := outCols.minMax()
+	if max > numCols || min < 0 {
+		return outCols, fmt.Errorf("at least one output column specifier is out of bounds or negative %d %d %d", min, max, numCols)
+	}
+
+	return outCols, nil
+}
+
 // parseOutputSpec parses the comma separated list of output columns
 func parseOutputSpec(input string) (parseSpec, error) {
 
@@ -343,6 +367,22 @@ func parseOutputSpec(input string) (parseSpec, error) {
 		spec = append(spec, makeIntRange(begin, end)...)
 	}
 	return spec, nil
+}
+
+// getRowSpec parses, checks, and returns the rowSpecs
+func getRowSpec(rows string) ([]rowRange, error) {
+
+	var rowRanges rowRangeSlice
+	var err error
+	if rows == "" {
+		return rowRanges, err
+	}
+
+	if rowRanges, err = parseRowSpec(spec.rows); err != nil {
+		return rowRanges, err
+	}
+	sort.Sort(rowRanges)
+	return rowRanges, nil
 }
 
 // parseRowSpec parses the comma separated list of row ranges to output
@@ -437,6 +477,15 @@ func variance(items []float64) float64 {
 		variance = qk / float64(len(items)-1)
 	}
 	return variance
+}
+
+// totalLen computes the totla number of items contained in a list of parseSpecs
+func totalLen(spec []parseSpec) int {
+	var totLen int
+	for _, s := range spec {
+		totLen += len(s)
+	}
+	return totLen
 }
 
 // getInputSepFunc returns a closure used for separating the columns in the
